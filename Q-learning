@@ -6,12 +6,12 @@ import itertools
 import matplotlib.pyplot as plt
 import random
 
-
 GRID_SIZE = 30
 N_STATES = GRID_SIZE ** 2  # We have 900 possible grid positions
-EPSILON = 0.1
-ALPHA = 0.01
-GAMMA = 0.9
+EPSILON = 1.0  # Initial exploration rate
+EPSILON_DECAY = 0.99  # Decay rate for exploration rate
+ALPHA = 0.001  # Learning rate
+GAMMA = 0.95  # Discount factor
 MAX_ENERGY = 10000
 RESOURCE_VALUE = 100
 SIZE = 2.5  # micro b
@@ -20,25 +20,21 @@ STEP_SIZE = 1
 
 
 class Robot:
-    def __init__(self, name, pos_x, pos_y, workload, resources,
-                 action):
+    def __init__(self, name, pos_x, pos_y, actions, workload, resources):
         self.name = name
         self.pos_x = pos_x
         self.pos_y = pos_y
-        self.actions = ['l', 'r', 'u', 'd', 'o']
-        self.workload = workload  # lamda workload value λ  : 0 --> 10
-        self.resources = resources  # robot resources : res  0 --> 100  : equivalent to MIPS in this case
+        self.actions = actions
+        self.workload = workload  # lambda workload value λ: 0 --> 10
+        self.resources = resources  # robot resources: res 0 --> 100: equivalent to MIPS in this case
         self.energy = MAX_ENERGY  # 10K JOULES ENERGY FIXED VALUE
 
     def reset(self):
-
         self.pos_x = random.randint(0, GRID_SIZE)
         self.pos_y = random.randint(0, GRID_SIZE)
-        self.workload = random.randint(1, 10)  # lamda workload value λ  : 0 --> 10
-        self.resources = random.randint(1, 100)  # robot resources : res  0 --> 100  : equivalent to MIPS in this case
-        #self.energy = MAX_ENERGY
+        self.workload = random.randint(1, 10)  # lambda workload value λ: 0 --> 10
+        self.resources = random.randint(1, 100)  # robot resources: res 0 --> 100: equivalent to MIPS in this case
         return self
-
 
     def get_state(self):
         position = (self.pos_x, self.pos_y)
@@ -65,21 +61,24 @@ class Robot:
         self.workload -= 1
         target_robot.workload += 1
 
-
     def calculate_delay(self):
         processing_delay = self.workload / self.resources
         transmission_delay = SIZE / RATE
-
-        return processing_delay + transmission_delay
+        delay = processing_delay + transmission_delay
+        if delay == 0:
+            return 0.0001  # Return a small positive value instead of zero
+        return delay
 
     def calculate_energy_consumption(self):
         return self.workload / self.energy
 
     def reward(self):
-        return 1 / (self.calculate_delay())
+        return 1 / self.calculate_delay()
+
 
 def st(robots):
     return [robot.get_state() for robot in robots]
+
 
 def state_index(robots, Q_table):
     state = st(robots)
@@ -105,21 +104,21 @@ def initialize_Q_table(num_states, num_actions, num_agents):
     return Q_table
 
 
-def main():
+def main(epsilon):
     num_agents = 3
     num_actions = 5  # ['left', 'right', 'up', 'down', 'offload']
     num_states = N_STATES
-    num_episodes = 1000
-    accreward=[]
+    num_episodes = 10000  # Increased number of episodes
+    accreward = []
 
     Q_table = initialize_Q_table(num_states, num_actions ** num_agents, num_agents)
 
     f = open("results.txt", "w+")
 
-
-    maxstep=10
+    maxstep = 20  # Increased number of steps per episode
     for episode in range(num_episodes):
-        # Initialize robots for the simulation
+        f.write(f'Starting episode {episode + 1}\n')
+        episode_rewards = []
         robots = [
             Robot("Robot 1", random.randint(0, GRID_SIZE), random.randint(0, GRID_SIZE),
                   ['l', 'r', 'u', 'd', 'o'], random.randint(1, 10), random.randint(1, 100)),
@@ -129,19 +128,14 @@ def main():
                   ['l', 'r', 'u', 'd', 'o'], random.randint(1, 10), random.randint(1, 100))
         ]
 
-
-        f.write(f'Starting episode {episode + 1}\n')
-        episode_rewards = []
-        for i in range (maxstep):
-            totreward=0
-            for robot in robots:
-                robot.reset()
+        for i in range(maxstep):
+            totreward = 0
             current_state = state_index(robots, Q_table)
             if current_state is None:
                 current_state = len(Q_table)
                 Q_table = np.vstack((Q_table, np.zeros(num_actions ** num_agents)))
             for agent, robot in enumerate(robots):
-                if np.random.rand() < EPSILON:
+                if np.random.rand() < epsilon:
                     action = np.random.choice(robot.actions)
                 else:
                     action = robot.actions[np.argmax(Q_table[current_state])]
@@ -153,23 +147,28 @@ def main():
                     Q_table = np.vstack((Q_table, np.zeros(num_actions ** num_agents)))
 
                 reward = robot.reward()
-                totreward+=reward
+                totreward += reward
 
                 action_ind = action_index(action, robot.actions)
                 Q_table[current_state][action_ind] = (1 - ALPHA) * Q_table[current_state][action_ind] + ALPHA * (
                         reward + GAMMA * np.max(Q_table[new_state]))
 
+            episode_rewards.append(totreward)
+            f.write(
+                f'Episode {episode + 1}, Robot {agent + 1}, Action: {action}, Reward: {reward}, New State: {new_state}\n')
 
-        accreward.append(totreward)
-        f.write(f'Episode {episode + 1}, Robot {agent + 1}, Action: {action}, Reward: {reward}, New State: {new_state}\n')
+        accreward.append(sum(episode_rewards))
+        epsilon *= EPSILON_DECAY  # Decay exploration rate
 
     fig, ax = plt.subplots()
-    plt.plot(range(1, 1001), accreward)
+    plt.plot(range(1, num_episodes + 1), accreward)
     ax.legend()
     plt.show()
     f.close()
 
     return [robot.reward() for robot in robots]
 
+
 if __name__ == "__main__":
-    main()
+    epsilon = EPSILON  # Initial exploration rate
+    main(epsilon)
