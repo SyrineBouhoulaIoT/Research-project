@@ -6,8 +6,8 @@ import itertools
 import matplotlib.pyplot as plt
 import random
 
-GRID_SIZE = 30
-N_STATES = GRID_SIZE ** 2  # We have 900 possible grid positions
+GRID_SIZE = 10
+N_STATES = GRID_SIZE ** 2
 EPSILON = 1.0  # Initial exploration rate
 EPSILON_DECAY = 0.99  # Decay rate for exploration rate
 ALPHA = 0.001  # Learning rate
@@ -17,7 +17,6 @@ RESOURCE_VALUE = 100
 SIZE = 2.5  # micro b
 RATE = 50  # micro b
 STEP_SIZE = 1
-
 
 class Robot:
     def __init__(self, name, pos_x, pos_y, actions, workload, resources):
@@ -58,16 +57,17 @@ class Robot:
             return None
 
     def offload(self, target_robot):
-        self.workload -= 1
-        target_robot.workload += 1
+        if self.workload > 0 and self.resources > 5:
+            self.workload -= 1
+            self.resources -= 5
+            target_robot.resources += 5
+            target_robot.workload += 1
+        return None
 
     def calculate_delay(self):
         processing_delay = self.workload / self.resources
         transmission_delay = SIZE / RATE
-        delay = processing_delay + transmission_delay
-        if delay == 0:
-            return 0.0001  # Return a small positive value instead of zero
-        return delay
+        return processing_delay + transmission_delay
 
     def calculate_energy_consumption(self):
         return self.workload / self.energy
@@ -75,10 +75,8 @@ class Robot:
     def reward(self):
         return 1 / self.calculate_delay()
 
-
 def st(robots):
     return [robot.get_state() for robot in robots]
-
 
 def state_index(robots, Q_table):
     state = st(robots)
@@ -89,7 +87,6 @@ def state_index(robots, Q_table):
             break
     return state_index
 
-
 def action_index(actions, robot_actions):
     action_index = None
     for index, a in enumerate(robot_actions):
@@ -98,35 +95,33 @@ def action_index(actions, robot_actions):
             break
     return action_index
 
-
 def initialize_Q_table(num_states, num_actions, num_agents):
     Q_table = np.zeros((num_states, num_actions))
     return Q_table
-
 
 def main(epsilon):
     num_agents = 3
     num_actions = 5  # ['left', 'right', 'up', 'down', 'offload']
     num_states = N_STATES
-    num_episodes = 10000  # Increased number of episodes
+    num_episodes = 100  # Increased number of episodes
     accreward = []
 
     Q_table = initialize_Q_table(num_states, num_actions ** num_agents, num_agents)
 
     f = open("results.txt", "w+")
 
-    maxstep = 20  # Increased number of steps per episode
+    maxstep = 10  # Increased number of steps per episode
     for episode in range(num_episodes):
         f.write(f'Starting episode {episode + 1}\n')
         episode_rewards = []
         robots = [
-            Robot("Robot 1", random.randint(0, GRID_SIZE), random.randint(0, GRID_SIZE),
-                  ['l', 'r', 'u', 'd', 'o'], random.randint(1, 10), random.randint(1, 100)),
-            Robot("Robot 2", random.randint(0, GRID_SIZE), random.randint(0, GRID_SIZE),
-                  ['l', 'r', 'u', 'd', 'o'], random.randint(1, 10), random.randint(1, 100)),
-            Robot("Robot 3", random.randint(0, GRID_SIZE), random.randint(0, GRID_SIZE),
-                  ['l', 'r', 'u', 'd', 'o'], random.randint(1, 10), random.randint(1, 100))
+            Robot("Robot 1", 0, 0, ['l', 'r', 'u', 'd', 'o'], 0, 0),
+            Robot("Robot 2", 0, 0, ['l', 'r', 'u', 'd', 'o'], 0, 0),
+            Robot("Robot 3", 0, 0, ['l', 'r', 'u', 'd', 'o'], 0, 0)
         ]
+
+        for robot in robots:
+            robot.reset()
 
         for i in range(maxstep):
             totreward = 0
@@ -157,8 +152,8 @@ def main(epsilon):
             f.write(
                 f'Episode {episode + 1}, Robot {agent + 1}, Action: {action}, Reward: {reward}, New State: {new_state}\n')
 
-        accreward.append(sum(episode_rewards))
         epsilon *= EPSILON_DECAY  # Decay exploration rate
+        accreward.append(sum(episode_rewards))  # sum of all the reward within an episode
 
     fig, ax = plt.subplots()
     plt.plot(range(1, num_episodes + 1), accreward)
@@ -167,7 +162,6 @@ def main(epsilon):
     f.close()
 
     return [robot.reward() for robot in robots]
-
 
 if __name__ == "__main__":
     epsilon = EPSILON  # Initial exploration rate
