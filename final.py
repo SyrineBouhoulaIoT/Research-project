@@ -1,236 +1,266 @@
 import numpy as np
 import matplotlib.pyplot as plt
-import pandas as pd
-import os
-import logging
-import itertools
+import random
+from collections import defaultdict
+import json
+import hashlib
 
-
-# Set up logging configuration
-# log_file = 'simulation.log'
-# if os.path.exists(log_file):
-#     os.remove(log_file)
-
-
-# logging.basicConfig(filename=log_file, level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-"""
-logging here is used to track each expirement , now using a normal text file , 
-later on will change the configs and ucomment top code to do the loggign properly in a .log file 
-"""
-
-GRID_SIZE = 30
-N_STATES = GRID_SIZE ** 2  # We have 900 possible grid positions
-EPSILON = 0.1
-ALPHA = 0.5
-GAMMA = 0.9
-MAX_ENERGY = 10000
-RESOURCE_VALUE = 100
+RESOURCE_VALUE = 3
+WORKLOADMAX = 10
+# GRID_SIZE = 2
+Energy_range = 3
+N_STATES = (RESOURCE_VALUE * WORKLOADMAX* Energy_range) ** 3
+N_ACTIONS = (3 ** 3) * (4 ** 3)   # nmbr action ** nmbr robot
+EPSILON = 1  # Initial exploration rate
+EPSILON_DECAY = 0.99999  # Decay rate for exploration rate
+ALPHA = 0.001  # Learning rate
+GAMMA = 0.95  # Discount factor
 SIZE = 2.5  # micro b
 RATE = 50  # micro b
-STEP_SIZE = 1
-"""
-the grid will be defined like this : 
-x  : 0 --------------------> 30
-  0  
-y |
-  |
-  |
-  |
-  |
-  |
-  |
-  |
-  30   
-"""
-"""
-these are our variable values , can be changed to whaterver we want depending on the example 
-for the sake of simplicity each step will have a value of 1 for now , we can update it to 0.5 later on 
-"""
 
 
 class Robot:
-    def __init__(self, name, pos_x, pos_y, action, workload, resources):
+    # def __init__(self, name, pos_x, pos_y, direction, off_decision, workload, resources, energy):
+    def __init__(self, name, off_decision, workload, resources, energy):
+
         self.name = name
-        self.pos_x = pos_x
-        self.pos_y = pos_y
-        self.actions = action
-        self.workload = workload  # lamda workload value λ  : 0 --> 10
-        self.resources = resources  # robot resources : res  0 --> 100  : equivalent to MIPS in this case
-        self.energy = MAX_ENERGY  # 10K JOULES ENERGY FIXED VALUE
+        # self.pos_x = pos_x
+        # self.pos_y = pos_y
+        # self.direction = direction
+        self.off_decision = off_decision
+        self.workload = workload  # lambda workload value λ: 0 --> 10
+        self.resources = resources  # robot resources: res 0 --> 100: equivalent to MIPS in this case
+        self.energy = energy
+
+    def reset(self):
+        # self.pos_x = random.randint(0, GRID_SIZE)
+        # self.pos_y = random.randint(0, GRID_SIZE)
+        self.energy = random.choice([0, 45,90])  # Generate random multiples of 20 in the range 0 to 80
+        self.resources = random.choice([0, 45,90])  # multiple of 20s between 10 and 90
+        self.workload = random.randint(0,9 )   # lambda workload value λ: 0 --> 10
+        # state = [(self.pos_x, self.pos_y), self.resources, self.workload, self.energy]
+        state = [self.workload, self.resources, self.energy]
+
+        return state
+
 
     def get_state(self):
-        position = (self.pos_x, self.pos_y)
-        remaining_energy = self.energy
+        # position = (self.pos_x, self.pos_y)
         available_resource = self.resources
+        workload = self.workload
+        energy = self.energy
+        # return [position, available_resource, workload, energy]
+        return [workload, available_resource, energy]
 
-        return [position, remaining_energy, available_resource]
+    def action(self):
+        return [self.off_decision]
+        # return [self.direction, self.off_decision]
 
-    def step(self, direction):
-        if direction == 'u' and self.pos_y > 0:
-            self.pos_y -= 1
-        elif direction == 'l' and self.pos_x > 0:
-            self.pos_x -= 1
-        elif direction == 'r' and self.pos_x < GRID_SIZE:
-            self.pos_x += 1
-        elif direction == 'd' and self.pos_y < GRID_SIZE:
-            self.pos_y += 1
+    def random_action(self):
+        # self.direction = random.choice(['l', 'r', 'u', 'd'])
+        self.off_decision = random.choice(['1', '2', '3'])
+        return self.off_decision  # Wrap the single action in a list
+
+
+
+
+def get_new_state(state, action, robots):
+    new_state = state.copy()  # Create a copy of the state to avoid modifying the original list
+    print("Original state:", new_state)
+    print("Action:", action)
+
+    for i, robot in enumerate(robots):
+        target_robot_index = int(action[i]) - 1  # Calculate the index of the target robot
+        target_robot = robots[target_robot_index]  # Get the target robot object
+
+        # Decrease the workload of the current robot
+        new_state[i][0] -= 1
+        print(f"Robot {i+1}: Workload decreased by 1")
+
+        # Increase the workload of the target robot in the state
+        new_state[target_robot_index][0] += 1
+        print(f"Target Robot {target_robot.name}: Workload increased by 1")
+
+    print("New state:", new_state)
+    return new_state
+
+
+
+def get_best_action(state, robots, Q_table):
+    state_key = hashlib.sha256(json.dumps(state, sort_keys=True).encode()).hexdigest()
+
+    state_actions = Q_table[state_key]['actions']
+    print("state actions", state_actions)
+    if state_actions:
+        best_action_key = max(state_actions, key=lambda action: state_actions[action]['Q-value'])
+        best_action = state_actions[best_action_key]['vector']
+        print("best action", best_action)
+        return best_action
+    else:
+        action_vec = [robot.random_action() for robot in robots]
+        print("action from else statement", action_vec)
+        return action_vec
+
+
+def reward(new_state):
+    total_reward = 0
+
+    for state in new_state:
+        workload = state[0]
+        print("workload", workload)
+        resources = state[1]
+        print("resources", resources)
+        energy = state[2]
+        print("energy", energy)
+
+        if resources == 0 and energy == 0 and workload > 0:
+            reward = workload * -100
+        elif resources == 0 or energy == 0 and workload > 0:
+            reward = -100
+        elif workload == 0:
+            reward = 10
         else:
-            return None
+            reward = resources / workload + (energy - workload * 5)
+        print("single reward", reward)
 
-    def offload(self, target_robot):
-        self.workload -= 1
-        target_robot.workload += 1
-        return None
+        total_reward += reward
+        print("total_reward", total_reward)
 
-    def calculate_delay(self):
-        processing_delay = self.workload / self.resources
-        transmission_delay = SIZE / RATE
-
-        return processing_delay + transmission_delay
-
-    def calculate_energy_consumption(self):
-        return self.workload / self.resources
-
-    def reward(self):
-        return 1 / (self.calculate_delay() + self.calculate_energy_consumption())
+    return total_reward
 
 
-def state_index(robot, Q_table):
-    robot_state = robot.get_state()
-    for index, state in enumerate(Q_table.values()):
-        if robot_state == state:
-            return index
-    return None
+
+def state_index(state, Q_table):
+    state_key = hashlib.sha256(json.dumps(state, sort_keys=True).encode()).hexdigest()
+    # print("state key", state_key)
+    if state_key in Q_table:
+        index = Q_table[state_key]['index']
+        print("State found in the Q_table with index", index)
+    else:
+        index = len(Q_table)
+        print("State not found in the Q_table. Added new index", index)
+
+        Q_table[state_key] = {
+            'index': index,
+            'vector': state,
+            'actions': {}
+        }
+    # print("state:Q_table[state_key] :", Q_table[state_key])
+    # print("actions of this state:", Q_table[state_key]['actions'])
+    return state, state_key
 
 
-def initialize_Q_table(num_states, num_agents, num_actions):
+def action_index(action_vec, state, Q_table):
+    state_key = hashlib.sha256(json.dumps(state, sort_keys=True).encode()).hexdigest()
+    action_key = hashlib.sha256(json.dumps(action_vec).encode()).hexdigest()
+
+    state_actions = Q_table[state_key]['actions']
+
+    if action_key in state_actions:
+        index = state_actions[action_key]['index']
+        print("Action found in the Q_table with index", index)
+    else:
+        index = len(state_actions)
+        print("Action not found in the Q_table. Added new index", index)
+
+        state_actions[action_key] = {
+            'index': index,
+            'vector': action_vec,
+            'Q-value': 0.0
+        }
+    # print("action:state_actions[action_key]: ", state_actions[action_key])
+    return action_key
+
+
+
+
+
+def main(epsilon):
+    # Initialize Q-table
     Q_table = {}
 
-    for state in range(num_states):
-        Q_table[state] = {}
-        for agent in range(num_agents):
-            Q_table[state][agent] = np.zeros(num_actions)
-
-    return Q_table
-
-
-def main():
     num_agents = 3
-    num_actions = 5  # ['left', 'right', 'up', 'down', 'offload']
     num_states = N_STATES
-    num_episodes = 10000
+    num_actions = N_ACTIONS
+    num_episodes = 1000000
+    average_rewards = []  # List to store average rewards every 100 episodes
 
-    Q_table = initialize_Q_table(num_states, num_agents, num_actions)
+    print("num_states", num_states)
+    for episode in range(num_episodes):
+        step_counter = 0  # Counter for steps taken in the current episode
 
-    # Initialize robots for the simulation
-    robots = [
-        Robot("Robot 1", 0, 0, ['l', 'r', 'u', 'd', 'o'], 5, RESOURCE_VALUE),
-        Robot("Robot 2", 15, 15, ['l', 'r', 'u', 'd', 'o'], 5, RESOURCE_VALUE),
-        Robot("Robot 3", 29, 29, ['l', 'r', 'u', 'd', 'o'], 5, RESOURCE_VALUE)
-    ]
-    # here we can initialise with random values as well instead of set fixed coordinates always for our 3 robots
-    with open('./LOG_FIle.txt', 'a') as f:
-        avgrewards = {}
-        avgrewards['1'] = []
-        avgrewards['2'] = []
-        avgrewards['3'] = []
+        robots = [
+            Robot("1", ['1', '2', '3'], 0, 0, 0),
+            Robot("2", ['1', '2', '3'], 0, 0, 0),
+            Robot("3", ['1', '2', '3'], 0, 0, 0)
+        ]
 
-        for episode in range(num_episodes):
+        max_steps = 10
+        satisfied = True
+        rewards = []
 
-            f.write(f'Starting episode {episode + 1}\n')
-            for agent, robot in enumerate(robots):
-                episode_rewards = []
-                current_state = state_index(robot, Q_table)
-                if current_state is None:
-                    current_state = len(Q_table)
-                    Q_table[current_state] = {agent: np.zeros(num_actions) for agent in range(num_agents)}
+        state = [robot.reset() for robot in robots]
+        print("random state new episode", state)
+        state, state_key = state_index(state, Q_table)
+        # print("current state ",state)
 
-                if np.random.rand() < EPSILON:
-                    action = np.random.choice(robot.actions)
-                else:
-                    action = robot.actions[np.argmax(Q_table[current_state][agent])]
 
-                if action in ['l', 'r', 'u', 'd']:
-                    robot.step(action)
-                elif action == 'o':
-                    min_workload_robot = min(robots, key=lambda r: r.workload if r != robot else float("inf"))
-                    robot.offload(min_workload_robot)
+        while satisfied:
+            if step_counter == max_steps:
+                print("end of steps")
+                break
 
-                new_state = state_index(robot, Q_table)
-                if new_state is None:
-                    new_state = len(Q_table)
-                    Q_table[new_state] = {agent: np.zeros(num_actions) for agent in range(num_agents)}
+            step_counter += 1
 
-                reward = robot.reward()
-                episode_rewards.append(reward)
-                if episode % 10 == 0:
-                    if agent == 1:
-                        avgrewards['1'].append(sum(episode_rewards) / len(episode_rewards))
-                    elif agent == 2:
-                        avgrewards['2'].append(sum(episode_rewards) / len(episode_rewards))
-                    else:
-                        avgrewards['3'].append(sum(episode_rewards) / len(episode_rewards))
-                    avg=np.mean(episode_rewards[-10:])
-                    #print("episode{}/{} ,agent{}  avgscore : {}".format(episode,num_episodes,agent,avg))
-                Q_table[current_state][agent] = (1 - ALPHA) * Q_table[current_state][agent] + ALPHA * (
-                        reward + GAMMA * np.max(Q_table[new_state][agent]))
-                #   logging.info(f'Episode {episode + 1}, Robot {agent + 1}, Action: {action}, Reward: {reward}, New State: {new_state}')
-                f.write(
-                    f'Episode {episode + 1}, Robot {agent + 1}, Action: {action}, Reward: {reward}, New State: {new_state}\n')
+            print("Episode:", episode, "Step:", step_counter)
 
-        print(avgrewards)
+            state, state_key = state_index(state, Q_table)
+            # print("current_state ", current_state)
 
-        # print(Q_table)
+            if np.random.rand() < epsilon:
+                action_vec = [robot.random_action() for robot in robots]
+                print("random action", action_vec)
+            else:
+                action_vec = get_best_action(state, robots, Q_table)
+            action_key = action_index(action_vec, state, Q_table)
 
-        # create a new figure and axis
-        fig, ax = plt.subplots()
+            new_state = get_new_state(state, action_vec, robots)
 
-        # loop over the dictionary keys
-        for key in avgrewards.keys():
-            # plot the values for this key
-            ax.plot(avgrewards[key], label=key)
+            state, new_state_key = state_index(new_state, Q_table)
 
-        # add a legend to the plot
-        ax.legend()
+            if not all(0 <= robot.workload <= 9 for robot in robots):
+                satisfied = False
+                totreward = -100
+                print("Penalty:", totreward)
+            else:
+                # totreward = sum([robot.reward(new_state) for robot in robots])
+                totreward = reward(new_state)
+                print("totreward", totreward)
+                rewards.append(totreward)
 
-        # show the plot
-        plt.show()
-    f.close()
+                Q_table[state_key]['actions'][action_key]['Q-value'] = (1 - ALPHA) * Q_table[state_key]['actions'][action_key]['Q-value'] + ALPHA * (totreward + GAMMA * max(Q_table.get(new_state_key, {}).get('actions', {}).get(action_key, {}).get('Q-value', 0.0), 0.0))
 
+            if not satisfied:
+                break
+
+        # total_reward = sum(rewards)  # Calculate the total reward for the episode
+        # print("totaaaaaaaaaaaaaaaaal", total_reward)
+
+        epsilon *= EPSILON_DECAY
+
+        # Calculate average reward every 1000 episodes
+        if episode % 1000 == 0:
+            average_reward = sum(rewards[-1000:]) / 1000  # Calculate the average reward
+            average_rewards.append(average_reward)
+
+    # Plot average rewards every 1000 episodes
+    episodes = range(1000, num_episodes + 1, 1000)
+    plt.plot(episodes, average_rewards)
+    plt.xlabel('Episodes')
+    plt.ylabel('Average Reward')
+    plt.title('Average Reward per 1000 Episodes')
+    plt.show()
 
 if __name__ == "__main__":
-    # Define the hyperparameters to be tuned
-    param_grid = {
-        'EPSILON': [0.1, 0.2, 0.3],
-        'ALPHA': [0.1, 0.5, 1.0],
-        'GAMMA': [0.5, 0.9, 0.95],
-        'MAX_ENERGY': [1000, 10000, 100000],
-        'RESOURCE_VALUE': [10, 100, 1000],
-    }
-
-    # Create a list of all possible combinations of hyperparameters
-    param_combinations = list(itertools.product(*param_grid.values()))
-
-
-    # Define a function to run the experiment for each set of hyperparameters
-    def run_experiment(params):
-        # Set the hyperparameters
-        global EPSILON, ALPHA, GAMMA, MAX_ENERGY, RESOURCE_VALUE
-
-        EPSILON, ALPHA, GAMMA, MAX_ENERGY, RESOURCE_VALUE = params
-
-        # Run the experiment
-        rewards = main()
-        # Summing all the rewards
-        return sum(rewards)
-
-
-    rewards = {}
-    # Run the experiments for all hyperparameter combinations
-    for i, params in enumerate(param_combinations):
-        # TO-DO: Find the Maximum experiment and pick the right hyperparameters
-        rewards[i] = run_experiment(params)
-    index = max(rewards.items(), key=lambda x: x[1])[0]
-    print(index)
-    print(f"Optimal Hyperparameters are: {param_combinations[index]} with a total reward of: {rewards[index]}")
-
+    epsilon = EPSILON  # Initial exploration rate
+    main(epsilon)
