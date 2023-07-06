@@ -6,11 +6,11 @@ import json
 import hashlib
 
 RESOURCE_VALUE = 3
-WORKLOADMAX = 10
+WORKLOADMAX = 3
 # GRID_SIZE = 2
 Energy_range = 3
 N_STATES = (RESOURCE_VALUE * WORKLOADMAX* Energy_range) ** 3
-N_ACTIONS = (3 ** 3) * (4 ** 3)   # nmbr action ** nmbr robot
+N_ACTIONS = (3 ** 3)   # nmbr action ** nmbr robot
 EPSILON = 1  # Initial exploration rate
 EPSILON_DECAY = 0.99999  # Decay rate for exploration rate
 ALPHA = 0.001  # Learning rate
@@ -32,18 +32,27 @@ class Robot:
         self.resources = resources  # robot resources: res 0 --> 100: equivalent to MIPS in this case
         self.energy = energy
 
+    # def reset(self):
+    #     # self.pos_x = random.randint(0, GRID_SIZE)
+    #     # self.pos_y = random.randint(0, GRID_SIZE)
+    #     self.energy = 90
+    #     self.resources = 90
+    #     self.workload =1 # lambda workload value λ: 0 --> 10
+    #     # state = [(self.pos_x, self.pos_y), self.resources, self.workload, self.energy]
+    #     state = [self.workload, self.resources, self.energy]
+    #
+    #     return state
+
     def reset(self):
         # self.pos_x = random.randint(0, GRID_SIZE)
         # self.pos_y = random.randint(0, GRID_SIZE)
-        self.energy = random.choice([0, 45,90])  # Generate random multiples of 20 in the range 0 to 80
-        self.resources = random.choice([0, 45,90])  # multiple of 20s between 10 and 90
-        self.workload = random.randint(0,9 )   # lambda workload value λ: 0 --> 10
+        self.energy = random.choice([0, 45, 90])
+        self.resources = random.choice([0, 45, 90])
+        self.workload = random.randint(1, 3)  # lambda workload value λ: 1 --> 3
         # state = [(self.pos_x, self.pos_y), self.resources, self.workload, self.energy]
         state = [self.workload, self.resources, self.energy]
 
         return state
-
-
     def get_state(self):
         # position = (self.pos_x, self.pos_y)
         available_resource = self.resources
@@ -65,7 +74,7 @@ class Robot:
 
 
 def get_new_state(state, action, robots):
-    new_state = state.copy()  # Create a copy of the state to avoid modifying the original list
+    new_state = [s.copy() for s in state]  # Create a copy of the state to avoid modifying the original list
     print("Original state:", new_state)
     print("Action:", action)
 
@@ -87,9 +96,10 @@ def get_new_state(state, action, robots):
 
 
 def get_best_action(state, robots, Q_table):
-    state_key = hashlib.sha256(json.dumps(state, sort_keys=True).encode()).hexdigest()
+    state_key = tuple(state)
+    state_hash = hash_state(state_key)
 
-    state_actions = Q_table[state_key]['actions']
+    state_actions = Q_table[state_hash]['actions']
     print("state actions", state_actions)
     if state_actions:
         best_action_key = max(state_actions, key=lambda action: state_actions[action]['Q-value'])
@@ -115,8 +125,8 @@ def reward(new_state):
 
         if resources == 0 and energy == 0 and workload > 0:
             reward = workload * -100
-        elif resources == 0 or energy == 0 and workload > 0:
-            reward = -100
+        elif resources == 0 or energy == 0 and workload == 0:
+            reward = 10
         elif workload == 0:
             reward = 10
         else:
@@ -129,50 +139,63 @@ def reward(new_state):
     return total_reward
 
 
+def hash_state(state_key):
+    state_json = json.dumps(state_key, sort_keys=True)
+    state_hash = hashlib.sha256(state_json.encode()).hexdigest()
+    return state_hash
 
+def hash_actio(action_key):
+    action_json= json.dumps(action_key, sort_keys=True)
+    actionhash = hashlib.sha256(action_json.encode()).hexdigest()
+    return actionhash
 def state_index(state, Q_table):
-    state_key = hashlib.sha256(json.dumps(state, sort_keys=True).encode()).hexdigest()
-    # print("state key", state_key)
-    if state_key in Q_table:
-        index = Q_table[state_key]['index']
+    state_key = tuple(state)
+    state_hash = hash_state(state_key)
+    print("state key", state_hash)
+    print("state from state index function", state)
+    if state_hash in Q_table:
+        index = Q_table[state_hash]['index']
         print("State found in the Q_table with index", index)
     else:
         index = len(Q_table)
-        print("State not found in the Q_table. Added new index", index)
+        if index >= N_STATES:
+            print("Maximum index reached. State index exceeds the number of states.")
+            index = N_STATES - 1  # Set the index to the maximum value
+        else:
+            print("State not found in the Q_table. Added new index", index)
 
-        Q_table[state_key] = {
-            'index': index,
-            'vector': state,
-            'actions': {}
-        }
-    # print("state:Q_table[state_key] :", Q_table[state_key])
-    # print("actions of this state:", Q_table[state_key]['actions'])
-    return state, state_key
+            Q_table[state_hash] = {
+                'index': index,
+                'vector': state,
+                'actions': {}
+            }
+
+    return state, state_hash, index
 
 
 def action_index(action_vec, state, Q_table):
-    state_key = hashlib.sha256(json.dumps(state, sort_keys=True).encode()).hexdigest()
-    action_key = hashlib.sha256(json.dumps(action_vec).encode()).hexdigest()
+    state_key = tuple(state)  # Convert the state to a tuple
+    state_hash = hash_state(state_key)  # Hash the state key    # print("state key", state_key)
 
-    state_actions = Q_table[state_key]['actions']
+    action_key= tuple(action_vec)  # Convert the state to a tuple
+    action_hash= hash_actio(action_key)  # Hash the state key    # print("state key", state_key)
 
-    if action_key in state_actions:
-        index = state_actions[action_key]['index']
+    state_actions = Q_table[state_hash]['actions']
+
+    if action_hash in state_actions:
+        index = state_actions[action_hash]['index']
         print("Action found in the Q_table with index", index)
     else:
         index = len(state_actions)
         print("Action not found in the Q_table. Added new index", index)
 
-        state_actions[action_key] = {
+        state_actions[action_hash] = {
             'index': index,
             'vector': action_vec,
             'Q-value': 0.0
         }
     # print("action:state_actions[action_key]: ", state_actions[action_key])
-    return action_key
-
-
-
+    return action_hash
 
 
 def main(epsilon):
@@ -182,7 +205,7 @@ def main(epsilon):
     num_agents = 3
     num_states = N_STATES
     num_actions = N_ACTIONS
-    num_episodes = 1000000
+    num_episodes = 3000000000
     average_rewards = []  # List to store average rewards every 100 episodes
 
     print("num_states", num_states)
@@ -195,13 +218,13 @@ def main(epsilon):
             Robot("3", ['1', '2', '3'], 0, 0, 0)
         ]
 
-        max_steps = 10
+        max_steps = 4
         satisfied = True
         rewards = []
 
         state = [robot.reset() for robot in robots]
         print("random state new episode", state)
-        state, state_key = state_index(state, Q_table)
+        state, state_key, index = state_index(state, Q_table)
         # print("current state ",state)
 
 
@@ -214,7 +237,7 @@ def main(epsilon):
 
             print("Episode:", episode, "Step:", step_counter)
 
-            state, state_key = state_index(state, Q_table)
+            state, state_key, index = state_index(state, Q_table)
             # print("current_state ", current_state)
 
             if np.random.rand() < epsilon:
@@ -226,11 +249,11 @@ def main(epsilon):
 
             new_state = get_new_state(state, action_vec, robots)
 
-            state, new_state_key = state_index(new_state, Q_table)
+            state, new_state_key, index = state_index(new_state, Q_table)
 
-            if not all(0 <= robot.workload <= 9 for robot in robots):
+            if not all(1 <= robot.workload <=3 for robot in robots):
                 satisfied = False
-                totreward = -100
+                totreward = -10
                 print("Penalty:", totreward)
             else:
                 # totreward = sum([robot.reward(new_state) for robot in robots])
@@ -239,7 +262,7 @@ def main(epsilon):
                 rewards.append(totreward)
 
                 Q_table[state_key]['actions'][action_key]['Q-value'] = (1 - ALPHA) * Q_table[state_key]['actions'][action_key]['Q-value'] + ALPHA * (totreward + GAMMA * max(Q_table.get(new_state_key, {}).get('actions', {}).get(action_key, {}).get('Q-value', 0.0), 0.0))
-
+                print("new q value:", Q_table[state_key]['actions'][action_key]['Q-value'])
             if not satisfied:
                 break
 
@@ -252,6 +275,7 @@ def main(epsilon):
         if episode % 1000 == 0:
             average_reward = sum(rewards[-1000:]) / 1000  # Calculate the average reward
             average_rewards.append(average_reward)
+            rewards = []  # Reset the rewards list for the next 100 episodes
 
     # Plot average rewards every 1000 episodes
     episodes = range(1000, num_episodes + 1, 1000)
