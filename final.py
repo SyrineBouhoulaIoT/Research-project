@@ -241,7 +241,7 @@ def main(epsilon):
 
             state, new_state_key = state_index(new_state, Q_table)
 
-            if not all(1 <= robot.workload <= 3 for robot in robots):
+            if not all(1 <= robot[0] <= 3 for robot in new_state):
                 satisfied = False
                 totreward = -100
                 print("Penalty:", totreward)
