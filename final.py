@@ -4,7 +4,7 @@ import random
 from collections import defaultdict
 import json
 import hashlib
-
+import pickle
 RESOURCE_VALUE = 3
 WORKLOADMAX = 3
 # GRID_SIZE = 2
@@ -32,27 +32,18 @@ class Robot:
         self.resources = resources  # robot resources: res 0 --> 100: equivalent to MIPS in this case
         self.energy = energy
 
-    # def reset(self):
-    #     # self.pos_x = random.randint(0, GRID_SIZE)
-    #     # self.pos_y = random.randint(0, GRID_SIZE)
-    #     self.energy = 90
-    #     self.resources = 90
-    #     self.workload =1 # lambda workload value λ: 0 --> 10
-    #     # state = [(self.pos_x, self.pos_y), self.resources, self.workload, self.energy]
-    #     state = [self.workload, self.resources, self.energy]
-    #
-    #     return state
-
     def reset(self):
         # self.pos_x = random.randint(0, GRID_SIZE)
         # self.pos_y = random.randint(0, GRID_SIZE)
-        self.energy = random.choice([0, 45, 90])
-        self.resources = random.choice([0, 45, 90])
-        self.workload = random.randint(1, 3)  # lambda workload value λ: 1 --> 3
+        self.energy = random.choice([0, 45,90])
+        self.resources = random.choice([0, 45,90])
+        self.workload = random.randint(1,3 )   # lambda workload value λ: 0 --> 10
         # state = [(self.pos_x, self.pos_y), self.resources, self.workload, self.energy]
         state = [self.workload, self.resources, self.energy]
 
         return state
+
+
     def get_state(self):
         # position = (self.pos_x, self.pos_y)
         available_resource = self.resources
@@ -96,9 +87,9 @@ def get_new_state(state, action, robots):
 
 
 def get_best_action(state, robots, Q_table):
-    state_key = tuple(state)
-    state_hash = hash_state(state_key)
+    state_key = tuple(state)  # Convert the state to a tuple
 
+    state_hash = hash_state(state_key)  # Hash the state key    # print("state key", state_key)
     state_actions = Q_table[state_hash]['actions']
     print("state actions", state_actions)
     if state_actions:
@@ -125,8 +116,8 @@ def reward(new_state):
 
         if resources == 0 and energy == 0 and workload > 0:
             reward = workload * -100
-        elif resources == 0 or energy == 0 and workload == 0:
-            reward = 10
+        elif resources == 0 or energy == 0 and workload ==0:
+            reward = -100
         elif workload == 0:
             reward = 10
         else:
@@ -139,38 +130,34 @@ def reward(new_state):
     return total_reward
 
 
+
 def hash_state(state_key):
-    state_json = json.dumps(state_key, sort_keys=True)
-    state_hash = hashlib.sha256(state_json.encode()).hexdigest()
+    state_bytes = pickle.dumps(state_key)
+    state_hash = hashlib.sha256(state_bytes).hexdigest()
     return state_hash
 
-def hash_actio(action_key):
-    action_json= json.dumps(action_key, sort_keys=True)
-    actionhash = hashlib.sha256(action_json.encode()).hexdigest()
+def hash_state(action_key):
+    action_bytes= pickle.dumps(action_key)
+    actionhash = hashlib.sha256(action_bytes).hexdigest()
     return actionhash
 def state_index(state, Q_table):
-    state_key = tuple(state)
-    state_hash = hash_state(state_key)
-    print("state key", state_hash)
-    print("state from state index function", state)
+    state_key = tuple(state)  # Convert the state to a tuple
+    state_hash = hash_state(state_key)  # Hash the state key    # print("state key", state_key)
     if state_hash in Q_table:
         index = Q_table[state_hash]['index']
         print("State found in the Q_table with index", index)
     else:
         index = len(Q_table)
-        if index >= N_STATES:
-            print("Maximum index reached. State index exceeds the number of states.")
-            index = N_STATES - 1  # Set the index to the maximum value
-        else:
-            print("State not found in the Q_table. Added new index", index)
+        print("State not found in the Q_table. Added new index", index)
 
-            Q_table[state_hash] = {
-                'index': index,
-                'vector': state,
-                'actions': {}
-            }
-
-    return state, state_hash, index
+        Q_table[state_hash] = {
+            'index': index,
+            'vector': state,
+            'actions': {}
+        }
+    # print("state:Q_table[state_key] :", Q_table[state_key])
+    # print("actions of this state:", Q_table[state_key]['actions'])
+    return state, state_hash
 
 
 def action_index(action_vec, state, Q_table):
@@ -178,7 +165,7 @@ def action_index(action_vec, state, Q_table):
     state_hash = hash_state(state_key)  # Hash the state key    # print("state key", state_key)
 
     action_key= tuple(action_vec)  # Convert the state to a tuple
-    action_hash= hash_actio(action_key)  # Hash the state key    # print("state key", state_key)
+    action_hash= hash_state(action_key)  # Hash the state key    # print("state key", state_key)
 
     state_actions = Q_table[state_hash]['actions']
 
@@ -198,6 +185,9 @@ def action_index(action_vec, state, Q_table):
     return action_hash
 
 
+
+
+
 def main(epsilon):
     # Initialize Q-table
     Q_table = {}
@@ -205,7 +195,7 @@ def main(epsilon):
     num_agents = 3
     num_states = N_STATES
     num_actions = N_ACTIONS
-    num_episodes = 3000000000
+    num_episodes = 100000000
     average_rewards = []  # List to store average rewards every 100 episodes
 
     print("num_states", num_states)
@@ -218,13 +208,13 @@ def main(epsilon):
             Robot("3", ['1', '2', '3'], 0, 0, 0)
         ]
 
-        max_steps = 4
+        max_steps = 10
         satisfied = True
         rewards = []
 
         state = [robot.reset() for robot in robots]
         print("random state new episode", state)
-        state, state_key, index = state_index(state, Q_table)
+        state, state_key = state_index(state, Q_table)
         # print("current state ",state)
 
 
@@ -237,7 +227,7 @@ def main(epsilon):
 
             print("Episode:", episode, "Step:", step_counter)
 
-            state, state_key, index = state_index(state, Q_table)
+            state, state_key = state_index(state, Q_table)
             # print("current_state ", current_state)
 
             if np.random.rand() < epsilon:
@@ -249,11 +239,11 @@ def main(epsilon):
 
             new_state = get_new_state(state, action_vec, robots)
 
-            state, new_state_key, index = state_index(new_state, Q_table)
+            state, new_state_key = state_index(new_state, Q_table)
 
-            if not all(1 <= robot.workload <=3 for robot in robots):
+            if not all(1 <= robot.workload <= 3 for robot in robots):
                 satisfied = False
-                totreward = -10
+                totreward = -100
                 print("Penalty:", totreward)
             else:
                 # totreward = sum([robot.reward(new_state) for robot in robots])
@@ -262,7 +252,7 @@ def main(epsilon):
                 rewards.append(totreward)
 
                 Q_table[state_key]['actions'][action_key]['Q-value'] = (1 - ALPHA) * Q_table[state_key]['actions'][action_key]['Q-value'] + ALPHA * (totreward + GAMMA * max(Q_table.get(new_state_key, {}).get('actions', {}).get(action_key, {}).get('Q-value', 0.0), 0.0))
-                print("new q value:", Q_table[state_key]['actions'][action_key]['Q-value'])
+
             if not satisfied:
                 break
 
